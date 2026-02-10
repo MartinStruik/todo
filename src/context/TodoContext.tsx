@@ -33,6 +33,7 @@ interface TodoContextType extends TodoState {
   deleteItem: (list: ListType, id: string) => void;
   scheduleItem: (list: ListType, id: string, schedule: ScheduleType | null) => void;
   addPlannerItem: (date: string, hour: number, text: string) => void;
+  reschedulePlannerItem: (id: string, newDate: string) => void;
   togglePlannerItem: (id: string) => void;
   deletePlannerItem: (id: string) => void;
   restoreFromArchive: (id: string) => void;
@@ -130,6 +131,15 @@ export function TodoProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const reschedulePlannerItem = useCallback((id: string, newDate: string) => {
+    setState(prev => ({
+      ...prev,
+      plannerItems: prev.plannerItems.map(item =>
+        item.id === id ? { ...item, date: newDate } : item
+      ),
+    }));
+  }, []);
+
   const togglePlannerItem = useCallback((id: string) => {
     setState(prev => {
       const item = prev.plannerItems.find(i => i.id === id);
@@ -187,6 +197,7 @@ export function TodoProvider({ children }: { children: ReactNode }) {
       deleteItem,
       scheduleItem,
       addPlannerItem,
+      reschedulePlannerItem,
       togglePlannerItem,
       deletePlannerItem,
       restoreFromArchive,

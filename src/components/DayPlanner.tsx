@@ -1,15 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { PLANNER_HOURS, ListType, LIST_CONFIG, TodoItem, getScheduledDates } from '../types';
 import { useTodo } from '../context/TodoContext';
 
+function getTomorrow(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
+}
+
+function getToday(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
 export default function DayPlanner() {
-  const { lists, plannerItems, addPlannerItem, togglePlannerItem, deletePlannerItem, toggleItem } = useTodo();
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const d = new Date();
-    return d.toISOString().split('T')[0];
-  });
+  const {
+    lists, plannerItems, archive,
+    addPlannerItem, reschedulePlannerItem, togglePlannerItem, deletePlannerItem,
+    toggleItem, scheduleItem,
+  } = useTodo();
+  const [selectedDate, setSelectedDate] = useState(getToday);
   const [editingHour, setEditingHour] = useState<number | null>(null);
   const [newText, setNewText] = useState('');
 
@@ -18,7 +29,6 @@ export default function DayPlanner() {
   const getItemsForHour = (hour: number) =>
     todayItems.filter(item => item.hour === hour);
 
-  // Collect all scheduled todo items for this date
   const scheduledTodos: (TodoItem & { listKey: ListType })[] = [];
   for (const key of Object.keys(lists) as ListType[]) {
     for (const item of lists[key]) {
@@ -30,6 +40,21 @@ export default function DayPlanner() {
       }
     }
   }
+
+  const isToday = selectedDate === getToday();
+
+  // Wrap-up: all done for today?
+  const todayCompleted = useMemo(() => {
+    if (!isToday) return false;
+    const hasPendingPlanner = todayItems.length > 0;
+    const hasPendingScheduled = scheduledTodos.length > 0;
+    if (hasPendingPlanner || hasPendingScheduled) return false;
+    // Check if there were any completed items today
+    const todayStr = getToday();
+    return archive.some(item =>
+      item.completedAt?.startsWith(todayStr)
+    );
+  }, [isToday, todayItems.length, scheduledTodos.length, archive]);
 
   const handleAdd = (hour: number) => {
     const text = newText.trim();
@@ -47,9 +72,8 @@ export default function DayPlanner() {
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr + 'T12:00:00');
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    const tomorrow = new Date(today);
+    const todayStr = getToday();
+    const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
@@ -65,9 +89,28 @@ export default function DayPlanner() {
 
   const currentHour = new Date().getHours();
 
+  const DelegateButtons = ({ onMorgen, onDezeWeek }: { onMorgen: () => void; onDezeWeek: () => void }) => (
+    <span className="flex gap-1 shrink-0">
+      <button
+        onClick={onMorgen}
+        className="text-xs px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 hover:bg-orange-200 transition-colors"
+        title="Verplaats naar morgen"
+      >
+        Morgen
+      </button>
+      <button
+        onClick={onDezeWeek}
+        className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+        title="Verplaats naar deze week"
+      >
+        Week
+      </button>
+    </span>
+  );
+
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-slate-900">Dagplanner</h2>
         <div className="flex items-center gap-2">
           <button
@@ -90,13 +133,20 @@ export default function DayPlanner() {
             </svg>
           </button>
           <button
-            onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+            onClick={() => setSelectedDate(getToday())}
             className="ml-2 px-3 py-1.5 text-sm bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"
           >
             Vandaag
           </button>
         </div>
       </div>
+
+      {todayCompleted && (
+        <div className="mb-6 p-6 bg-green-50 border border-green-200 rounded-xl text-center">
+          <p className="text-2xl font-bold text-green-700 mb-1">Wrap up!</p>
+          <p className="text-green-600">Alle taken voor vandaag zijn afgerond. Goed gedaan!</p>
+        </div>
+      )}
 
       {scheduledTodos.length > 0 && (
         <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
@@ -105,7 +155,7 @@ export default function DayPlanner() {
           </p>
           <ul className="space-y-2">
             {scheduledTodos.map(item => (
-              <li key={item.id} className="group flex items-center gap-3">
+              <li key={item.id} className="group flex items-center gap-2">
                 <button
                   onClick={() => toggleItem(item.listKey, item.id)}
                   className="w-4 h-4 rounded border-2 border-amber-400 hover:border-green-500 flex items-center justify-center transition-colors shrink-0"
@@ -116,11 +166,17 @@ export default function DayPlanner() {
                 </button>
                 <span className="flex-1 text-sm text-slate-800">{item.text}</span>
                 <span
-                  className="text-xs px-2 py-0.5 rounded-full text-white"
+                  className="text-xs px-2 py-0.5 rounded-full text-white shrink-0"
                   style={{ backgroundColor: LIST_CONFIG[item.listKey].color }}
                 >
                   {LIST_CONFIG[item.listKey].label}
                 </span>
+                {item.schedule === 'vandaag' && (
+                  <DelegateButtons
+                    onMorgen={() => scheduleItem(item.listKey, item.id, 'morgen')}
+                    onDezeWeek={() => scheduleItem(item.listKey, item.id, 'deze_week')}
+                  />
+                )}
               </li>
             ))}
           </ul>
@@ -130,7 +186,7 @@ export default function DayPlanner() {
       <div className="space-y-0">
         {PLANNER_HOURS.map(hour => {
           const hourItems = getItemsForHour(hour);
-          const isCurrentHour = hour === currentHour && selectedDate === new Date().toISOString().split('T')[0];
+          const isCurrentHour = hour === currentHour && isToday;
 
           return (
             <div
@@ -160,6 +216,17 @@ export default function DayPlanner() {
                       </svg>
                     </button>
                     <span className="flex-1 text-sm text-slate-800">{item.text}</span>
+                    <DelegateButtons
+                      onMorgen={() => reschedulePlannerItem(item.id, getTomorrow())}
+                      onDezeWeek={() => {
+                        const d = new Date(selectedDate);
+                        const day = d.getDay();
+                        const friday = new Date(d);
+                        friday.setDate(d.getDate() + (5 - (day === 0 ? 7 : day)));
+                        if (friday <= d) friday.setDate(d.getDate() + 1);
+                        reschedulePlannerItem(item.id, friday.toISOString().split('T')[0]);
+                      }}
+                    />
                     <button
                       onClick={() => deletePlannerItem(item.id)}
                       className="lg:opacity-0 lg:group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all"
