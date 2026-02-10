@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ListType, LIST_CONFIG, ScheduleType, SCHEDULE_CONFIG } from '../types';
 import { useTodo } from '../context/TodoContext';
 
@@ -14,7 +14,19 @@ export default function ListView({ listType }: ListViewProps) {
   const { lists, addItem, toggleItem, deleteItem, scheduleItem } = useTodo();
   const [newText, setNewText] = useState('');
   const [openScheduleId, setOpenScheduleId] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const items = lists[listType];
+
+  useEffect(() => {
+    if (!openScheduleId) return;
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpenScheduleId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [openScheduleId]);
   const config = LIST_CONFIG[listType];
 
   const handleAdd = () => {
@@ -88,7 +100,7 @@ export default function ListView({ listType }: ListViewProps) {
                 </span>
               )}
 
-              <div className="relative">
+              <div className="relative" ref={openScheduleId === item.id ? dropdownRef : undefined}>
                 <button
                   onClick={() => setOpenScheduleId(openScheduleId === item.id ? null : item.id)}
                   className={`text-slate-400 hover:text-blue-500 transition-colors ${openScheduleId === item.id ? 'text-blue-500' : 'lg:opacity-0 lg:group-hover:opacity-100'}`}

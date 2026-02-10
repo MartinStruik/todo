@@ -20,21 +20,22 @@ export const SCHEDULE_CONFIG: Record<ScheduleType, { label: string; color: strin
 };
 
 export function getScheduledDates(item: TodoItem): string[] {
-  if (!item.schedule || !item.scheduleSetOn) return [];
-  const setDate = new Date(item.scheduleSetOn + 'T12:00:00');
+  if (!item.schedule) return [];
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
 
   if (item.schedule === 'vandaag') {
-    return [item.scheduleSetOn];
+    return [today.toISOString().split('T')[0]];
   }
   if (item.schedule === 'morgen') {
-    const d = new Date(setDate);
+    const d = new Date(today);
     d.setDate(d.getDate() + 1);
     return [d.toISOString().split('T')[0]];
   }
   if (item.schedule === 'deze_week') {
-    const day = setDate.getDay();
-    const monday = new Date(setDate);
-    monday.setDate(setDate.getDate() - ((day + 6) % 7));
+    const day = today.getDay();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - ((day + 6) % 7));
     const dates: string[] = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(monday);

@@ -68,7 +68,7 @@ export default function ArchiveView() {
                     </span>
                     <button
                       onClick={() => restoreFromArchive(item.id)}
-                      className="opacity-0 group-hover:opacity-100 text-sm text-blue-500 hover:text-blue-700 transition-all"
+                      className="lg:opacity-0 lg:group-hover:opacity-100 text-sm text-blue-500 hover:text-blue-700 transition-all"
                       title="Terugzetten"
                     >
                       Herstel

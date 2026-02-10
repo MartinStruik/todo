@@ -162,7 +162,7 @@ export default function DayPlanner() {
                     <span className="flex-1 text-sm text-slate-800">{item.text}</span>
                     <button
                       onClick={() => deletePlannerItem(item.id)}
-                      className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all"
+                      className="lg:opacity-0 lg:group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
