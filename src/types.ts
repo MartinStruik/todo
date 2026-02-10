@@ -10,7 +10,8 @@ export interface TodoItem {
   createdAt: string;
   completedAt?: string;
   schedule?: ScheduleType;
-  scheduleSetOn?: string; // ISO date (YYYY-MM-DD) when schedule was set
+  scheduleSetOn?: string;
+  scheduledHour?: number;
 }
 
 export const SCHEDULE_CONFIG: Record<ScheduleType, { label: string; color: string }> = {
