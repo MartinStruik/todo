@@ -91,7 +91,7 @@ export default function ListView({ listType }: ListViewProps) {
               <div className="relative">
                 <button
                   onClick={() => setOpenScheduleId(openScheduleId === item.id ? null : item.id)}
-                  className={`text-slate-400 hover:text-blue-500 transition-colors ${openScheduleId === item.id ? 'text-blue-500' : 'opacity-0 group-hover:opacity-100'}`}
+                  className={`text-slate-400 hover:text-blue-500 transition-colors ${openScheduleId === item.id ? 'text-blue-500' : 'lg:opacity-0 lg:group-hover:opacity-100'}`}
                   title="Inplannen"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -144,7 +144,7 @@ export default function ListView({ listType }: ListViewProps) {
 
               <button
                 onClick={() => deleteItem(listType, item.id)}
-                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all"
+                className="lg:opacity-0 lg:group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all"
                 title="Verwijderen"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
