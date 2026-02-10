@@ -16,10 +16,12 @@ function getToday(): string {
 
 interface DragState {
   item: TodoItem & { listKey: ListType };
-  startY: number;
   ghostX: number;
   ghostY: number;
 }
+
+const SCROLL_ZONE = 80; // px from edge to trigger auto-scroll
+const SCROLL_SPEED = 8; // px per frame
 
 export default function DayPlanner() {
   const {
@@ -35,14 +37,16 @@ export default function DayPlanner() {
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dragOverHour, setDragOverHour] = useState<number | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLElement | null>(null);
+  const autoScrollRaf = useRef<number | null>(null);
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
 
   const todayPlannerItems = plannerItems.filter(item => item.date === selectedDate);
 
   const getItemsForHour = (hour: number) =>
     todayPlannerItems.filter(item => item.hour === hour);
 
-  // Collect scheduled todos for this date
   const allScheduledTodos: (TodoItem & { listKey: ListType })[] = [];
   for (const key of Object.keys(lists) as ListType[]) {
     for (const item of lists[key]) {
@@ -55,9 +59,10 @@ export default function DayPlanner() {
     }
   }
 
-  // Split: those with an hour go to time slots, without go to floating section
-  const floatingTodos = allScheduledTodos.filter(i => i.scheduledHour === undefined);
-  const hourTodos = allScheduledTodos.filter(i => i.scheduledHour !== undefined);
+  // Items being dragged are hidden from their slot
+  const dragId = drag?.item.id;
+  const floatingTodos = allScheduledTodos.filter(i => i.scheduledHour === undefined && i.id !== dragId);
+  const hourTodos = allScheduledTodos.filter(i => i.scheduledHour !== undefined && i.id !== dragId);
 
   const getScheduledTodosForHour = (hour: number) =>
     hourTodos.filter(i => i.scheduledHour === hour);
@@ -98,97 +103,121 @@ export default function DayPlanner() {
 
   const currentHour = new Date().getHours();
 
-  // --- Touch drag handlers ---
-  const handleTouchStart = useCallback((e: React.TouchEvent, item: TodoItem & { listKey: ListType }) => {
-    const touch = e.touches[0];
-    const startY = touch.clientY;
-    longPressTimer.current = setTimeout(() => {
-      setDrag({
-        item,
-        startY,
-        ghostX: touch.clientX,
-        ghostY: touch.clientY,
-      });
-    }, 200);
+  // --- Find scrollable parent (main element) ---
+  useEffect(() => {
+    scrollRef.current = document.querySelector('main');
   }, []);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (longPressTimer.current && !drag) {
-      const touch = e.touches[0];
-      // Cancel long press if finger moved too much (it's a scroll)
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-      return;
-    }
-    if (!drag) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    setDrag(prev => prev ? { ...prev, ghostX: touch.clientX, ghostY: touch.clientY } : null);
+  // --- Auto-scroll during drag ---
+  const startAutoScroll = useCallback(() => {
+    const tick = () => {
+      const d = dragRef.current;
+      const el = scrollRef.current;
+      if (!d || !el) return;
 
-    // Detect hour slot under finger
-    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const rect = el.getBoundingClientRect();
+      const y = d.ghostY;
+
+      if (y < rect.top + SCROLL_ZONE) {
+        el.scrollTop -= SCROLL_SPEED;
+      } else if (y > rect.bottom - SCROLL_ZONE) {
+        el.scrollTop += SCROLL_SPEED;
+      }
+
+      autoScrollRaf.current = requestAnimationFrame(tick);
+    };
+    autoScrollRaf.current = requestAnimationFrame(tick);
+  }, []);
+
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollRaf.current) {
+      cancelAnimationFrame(autoScrollRaf.current);
+      autoScrollRaf.current = null;
+    }
+  }, []);
+
+  // --- Shared drag logic ---
+  const detectHourSlot = useCallback((x: number, y: number) => {
+    const el = document.elementFromPoint(x, y);
     const hourSlot = el?.closest('[data-hour-slot]');
     if (hourSlot) {
       setDragOverHour(Number(hourSlot.getAttribute('data-hour-slot')));
     } else {
       setDragOverHour(null);
     }
-  }, [drag]);
+  }, []);
+
+  const finishDrag = useCallback(() => {
+    const d = dragRef.current;
+    if (d) {
+      if (dragOverHour !== null) {
+        setItemHour(d.item.listKey, d.item.id, dragOverHour);
+      } else {
+        // Dropped outside any hour → go back to floating
+        setItemHour(d.item.listKey, d.item.id, null);
+      }
+    }
+    setDrag(null);
+    setDragOverHour(null);
+    stopAutoScroll();
+  }, [dragOverHour, setItemHour, stopAutoScroll]);
+
+  // --- Touch drag handlers ---
+  const handleTouchStart = useCallback((e: React.TouchEvent, item: TodoItem & { listKey: ListType }) => {
+    const touch = e.touches[0];
+    longPressTimer.current = setTimeout(() => {
+      setDrag({ item, ghostX: touch.clientX, ghostY: touch.clientY });
+      startAutoScroll();
+    }, 200);
+  }, [startAutoScroll]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (longPressTimer.current && !dragRef.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+      return;
+    }
+    if (!dragRef.current) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    setDrag(prev => prev ? { ...prev, ghostX: touch.clientX, ghostY: touch.clientY } : null);
+    detectHourSlot(touch.clientX, touch.clientY);
+  }, [detectHourSlot]);
 
   const handleTouchEnd = useCallback(() => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
-    if (drag && dragOverHour !== null) {
-      setItemHour(drag.item.listKey, drag.item.id, dragOverHour);
-    }
-    setDrag(null);
-    setDragOverHour(null);
-  }, [drag, dragOverHour, setItemHour]);
+    finishDrag();
+  }, [finishDrag]);
 
-  // Prevent scroll while dragging
+  // Prevent native scroll while dragging
   useEffect(() => {
     if (!drag) return;
-    const prevent = (e: TouchEvent) => {
-      if (drag) e.preventDefault();
-    };
+    const prevent = (e: TouchEvent) => e.preventDefault();
     document.addEventListener('touchmove', prevent, { passive: false });
     return () => document.removeEventListener('touchmove', prevent);
   }, [drag]);
 
-  // --- Mouse drag handlers (for desktop testing) ---
+  // --- Mouse drag handlers ---
   const [mouseDrag, setMouseDrag] = useState(false);
 
   const handleMouseDown = useCallback((e: React.MouseEvent, item: TodoItem & { listKey: ListType }) => {
     e.preventDefault();
-    setDrag({
-      item,
-      startY: e.clientY,
-      ghostX: e.clientX,
-      ghostY: e.clientY,
-    });
+    setDrag({ item, ghostX: e.clientX, ghostY: e.clientY });
     setMouseDrag(true);
-  }, []);
+    startAutoScroll();
+  }, [startAutoScroll]);
 
   useEffect(() => {
     if (!mouseDrag || !drag) return;
     const handleMove = (e: MouseEvent) => {
       setDrag(prev => prev ? { ...prev, ghostX: e.clientX, ghostY: e.clientY } : null);
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const hourSlot = el?.closest('[data-hour-slot]');
-      if (hourSlot) {
-        setDragOverHour(Number(hourSlot.getAttribute('data-hour-slot')));
-      } else {
-        setDragOverHour(null);
-      }
+      detectHourSlot(e.clientX, e.clientY);
     };
     const handleUp = () => {
-      if (drag && dragOverHour !== null) {
-        setItemHour(drag.item.listKey, drag.item.id, dragOverHour);
-      }
-      setDrag(null);
-      setDragOverHour(null);
+      finishDrag();
       setMouseDrag(false);
     };
     window.addEventListener('mousemove', handleMove);
@@ -197,7 +226,23 @@ export default function DayPlanner() {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [mouseDrag, drag, dragOverHour, setItemHour]);
+  }, [mouseDrag, drag, finishDrag, detectHourSlot]);
+
+  // --- Drag handle props (reusable for both floating and hour-slotted items) ---
+  const dragHandleProps = (item: TodoItem & { listKey: ListType }) => ({
+    onTouchStart: (e: React.TouchEvent) => handleTouchStart(e, item),
+    onTouchMove: handleTouchMove,
+    onTouchEnd: handleTouchEnd,
+    onMouseDown: (e: React.MouseEvent) => handleMouseDown(e, item),
+  });
+
+  const DragHandle = () => (
+    <span className="text-slate-400 shrink-0 cursor-grab active:cursor-grabbing">
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 8h16M4 16h16" />
+      </svg>
+    </span>
+  );
 
   const DelegateButtons = ({ onMorgen, onDezeWeek }: { onMorgen: () => void; onDezeWeek: () => void }) => (
     <span className="flex gap-1 shrink-0">
@@ -216,42 +261,13 @@ export default function DayPlanner() {
     </span>
   );
 
-  const ScheduledTodoRow = ({ item, showDelegateButtons }: { item: TodoItem & { listKey: ListType }; showDelegateButtons?: boolean }) => (
-    <li className="group flex items-center gap-2">
-      <button
-        onClick={() => toggleItem(item.listKey, item.id)}
-        className="w-4 h-4 rounded border-2 border-amber-400 hover:border-green-500 flex items-center justify-center transition-colors shrink-0"
-      >
-        <svg className="w-2.5 h-2.5 text-transparent group-hover:text-green-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-        </svg>
-      </button>
-      <span className="flex-1 text-sm text-slate-800">{item.text}</span>
-      <span
-        className="text-xs px-2 py-0.5 rounded-full text-white shrink-0"
-        style={{ backgroundColor: LIST_CONFIG[item.listKey].color }}
-      >
-        {LIST_CONFIG[item.listKey].label}
-      </span>
-      {showDelegateButtons && item.schedule === 'vandaag' && (
-        <DelegateButtons
-          onMorgen={() => scheduleItem(item.listKey, item.id, 'morgen')}
-          onDezeWeek={() => scheduleItem(item.listKey, item.id, 'deze_week')}
-        />
-      )}
-    </li>
-  );
-
   return (
-    <div className="max-w-2xl mx-auto" ref={containerRef}>
-      {/* Ghost element while dragging */}
+    <div className="max-w-2xl mx-auto">
+      {/* Ghost element */}
       {drag && (
         <div
           className="fixed z-[100] pointer-events-none bg-amber-100 border border-amber-300 rounded-lg px-3 py-2 shadow-xl text-sm text-slate-800 max-w-[200px] truncate opacity-90"
-          style={{
-            left: drag.ghostX - 80,
-            top: drag.ghostY - 20,
-          }}
+          style={{ left: drag.ghostX - 80, top: drag.ghostY - 20 }}
         >
           {drag.item.text}
         </div>
@@ -298,17 +314,10 @@ export default function DayPlanner() {
             {floatingTodos.map(item => (
               <li
                 key={item.id}
-                className="group flex items-center gap-2 touch-none cursor-grab active:cursor-grabbing"
-                onTouchStart={e => handleTouchStart(e, item)}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                onMouseDown={e => handleMouseDown(e, item)}
+                className="group flex items-center gap-2 touch-none"
+                {...dragHandleProps(item)}
               >
-                <span className="text-slate-400 shrink-0 mr-1">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 8h16M4 16h16" />
-                  </svg>
-                </span>
+                <DragHandle />
                 <button
                   onClick={() => toggleItem(item.listKey, item.id)}
                   className="w-4 h-4 rounded border-2 border-amber-400 hover:border-green-500 flex items-center justify-center transition-colors shrink-0"
@@ -358,9 +367,30 @@ export default function DayPlanner() {
               </div>
 
               <div className="flex-1 py-2 pl-4 border-l border-slate-200 min-h-[52px]">
-                {/* Scheduled todos assigned to this hour */}
+                {/* Scheduled todos in this hour — draggable */}
                 {scheduledAtHour.map(item => (
-                  <ScheduledTodoRow key={item.id} item={item} />
+                  <div
+                    key={item.id}
+                    className="group flex items-center gap-2 py-1 touch-none"
+                    {...dragHandleProps(item)}
+                  >
+                    <DragHandle />
+                    <button
+                      onClick={() => toggleItem(item.listKey, item.id)}
+                      className="w-4 h-4 rounded border-2 border-amber-400 hover:border-green-500 flex items-center justify-center transition-colors shrink-0"
+                    >
+                      <svg className="w-2.5 h-2.5 text-transparent group-hover:text-green-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </button>
+                    <span className="flex-1 text-sm text-slate-800">{item.text}</span>
+                    <span
+                      className="text-xs px-2 py-0.5 rounded-full text-white shrink-0"
+                      style={{ backgroundColor: LIST_CONFIG[item.listKey].color }}
+                    >
+                      {LIST_CONFIG[item.listKey].label}
+                    </span>
+                  </div>
                 ))}
 
                 {/* Regular planner items */}
