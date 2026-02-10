@@ -162,77 +162,80 @@ export default function DayPlanner() {
     stopAutoScroll();
   }, [dragOverHour, setItemHour, stopAutoScroll]);
 
-  // --- Touch drag handlers ---
+  // --- Start drag (shared for touch and mouse) ---
   const handleTouchStart = useCallback((e: React.TouchEvent, item: TodoItem & { listKey: ListType }) => {
     const touch = e.touches[0];
+    const startX = touch.clientX;
+    const startY = touch.clientY;
     longPressTimer.current = setTimeout(() => {
-      setDrag({ item, ghostX: touch.clientX, ghostY: touch.clientY });
+      setDrag({ item, ghostX: startX, ghostY: startY });
       startAutoScroll();
     }, 200);
   }, [startAutoScroll]);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+  const handleMouseDown = useCallback((e: React.MouseEvent, item: TodoItem & { listKey: ListType }) => {
+    e.preventDefault();
+    setDrag({ item, ghostX: e.clientX, ghostY: e.clientY });
+    startAutoScroll();
+  }, [startAutoScroll]);
+
+  // Cancel long press if finger moves before drag starts
+  const handleTouchMoveCancel = useCallback((e: React.TouchEvent) => {
     if (longPressTimer.current && !dragRef.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
-      return;
     }
-    if (!dragRef.current) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    setDrag(prev => prev ? { ...prev, ghostX: touch.clientX, ghostY: touch.clientY } : null);
-    detectHourSlot(touch.clientX, touch.clientY);
-  }, [detectHourSlot]);
+  }, []);
 
-  const handleTouchEnd = useCallback(() => {
+  const handleTouchEndCancel = useCallback(() => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
-    finishDrag();
-  }, [finishDrag]);
+  }, []);
 
-  // Prevent native scroll while dragging
+  // --- Global document listeners once drag is active ---
   useEffect(() => {
     if (!drag) return;
-    const prevent = (e: TouchEvent) => e.preventDefault();
-    document.addEventListener('touchmove', prevent, { passive: false });
-    return () => document.removeEventListener('touchmove', prevent);
-  }, [drag]);
 
-  // --- Mouse drag handlers ---
-  const [mouseDrag, setMouseDrag] = useState(false);
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      setDrag(prev => prev ? { ...prev, ghostX: touch.clientX, ghostY: touch.clientY } : null);
+      detectHourSlot(touch.clientX, touch.clientY);
+    };
 
-  const handleMouseDown = useCallback((e: React.MouseEvent, item: TodoItem & { listKey: ListType }) => {
-    e.preventDefault();
-    setDrag({ item, ghostX: e.clientX, ghostY: e.clientY });
-    setMouseDrag(true);
-    startAutoScroll();
-  }, [startAutoScroll]);
+    const onTouchEnd = () => {
+      finishDrag();
+    };
 
-  useEffect(() => {
-    if (!mouseDrag || !drag) return;
-    const handleMove = (e: MouseEvent) => {
+    const onMouseMove = (e: MouseEvent) => {
       setDrag(prev => prev ? { ...prev, ghostX: e.clientX, ghostY: e.clientY } : null);
       detectHourSlot(e.clientX, e.clientY);
     };
-    const handleUp = () => {
+
+    const onMouseUp = () => {
       finishDrag();
-      setMouseDrag(false);
     };
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
+
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+
     return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
     };
-  }, [mouseDrag, drag, finishDrag, detectHourSlot]);
+  }, [drag, finishDrag, detectHourSlot]);
 
   // --- Drag handle props (reusable for both floating and hour-slotted items) ---
   const dragHandleProps = (item: TodoItem & { listKey: ListType }) => ({
     onTouchStart: (e: React.TouchEvent) => handleTouchStart(e, item),
-    onTouchMove: handleTouchMove,
-    onTouchEnd: handleTouchEnd,
+    onTouchMove: handleTouchMoveCancel,
+    onTouchEnd: handleTouchEndCancel,
     onMouseDown: (e: React.MouseEvent) => handleMouseDown(e, item),
   });
 
