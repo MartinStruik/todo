@@ -37,10 +37,13 @@ export default function DayPlanner() {
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dragOverHour, setDragOverHour] = useState<number | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
   const scrollRef = useRef<HTMLElement | null>(null);
   const autoScrollRaf = useRef<number | null>(null);
   const dragRef = useRef(drag);
   dragRef.current = drag;
+  const dragOverHourRef = useRef(dragOverHour);
+  dragOverHourRef.current = dragOverHour;
 
   const todayPlannerItems = plannerItems.filter(item => item.date === selectedDate);
 
@@ -149,24 +152,25 @@ export default function DayPlanner() {
 
   const finishDrag = useCallback(() => {
     const d = dragRef.current;
+    const hour = dragOverHourRef.current;
     if (d) {
-      if (dragOverHour !== null) {
-        setItemHour(d.item.listKey, d.item.id, dragOverHour);
+      if (hour !== null) {
+        setItemHour(d.item.listKey, d.item.id, hour);
       } else {
-        // Dropped outside any hour → go back to floating
         setItemHour(d.item.listKey, d.item.id, null);
       }
     }
     setDrag(null);
     setDragOverHour(null);
     stopAutoScroll();
-  }, [dragOverHour, setItemHour, stopAutoScroll]);
+  }, [setItemHour, stopAutoScroll]);
 
   // --- Start drag (shared for touch and mouse) ---
   const handleTouchStart = useCallback((e: React.TouchEvent, item: TodoItem & { listKey: ListType }) => {
     const touch = e.touches[0];
     const startX = touch.clientX;
     const startY = touch.clientY;
+    touchStartPos.current = { x: startX, y: startY };
     longPressTimer.current = setTimeout(() => {
       setDrag({ item, ghostX: startX, ghostY: startY });
       startAutoScroll();
@@ -179,11 +183,17 @@ export default function DayPlanner() {
     startAutoScroll();
   }, [startAutoScroll]);
 
-  // Cancel long press if finger moves before drag starts
+  // Cancel long press only if finger moves more than 10px before drag starts
   const handleTouchMoveCancel = useCallback((e: React.TouchEvent) => {
-    if (longPressTimer.current && !dragRef.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
+    if (longPressTimer.current && !dragRef.current && touchStartPos.current) {
+      const touch = e.touches[0];
+      const dx = touch.clientX - touchStartPos.current.x;
+      const dy = touch.clientY - touchStartPos.current.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 10) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
     }
   }, []);
 
